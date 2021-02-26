@@ -32,11 +32,11 @@ CMD_DIR ?= cmd
 RELEASE_DIR ?= release-artifacts
 PACKED_DIR ?= $(BIN_DIR)/packed
 CMDS ?= $(shell ls $(CMD_DIR))
-BINS ?= $(addsuffix -$(GOOS)-$(GOARCH),$(addprefix $(BIN_DIR)/,$(CMDS)))
+BINS ?= $(addsuffix -$(GOOS)-$(GOARCH)$(shell [ $(GOOS) == windows ]; echo '.exe';),$(addprefix $(BIN_DIR)/,$(CMDS)))
 CHANGELOG ?= changelog.md
 
-BIN_ARCH ?= $(GOOS)-$(GOARCH)
-RELEASE_SUFFIX ?= $(GIT_REF)-$(BIN_ARCH).tar.gz
+BIN_ARCH ?= $(GOOS)-$(GOARCH)$(shell [ $(GOOS) == windows ]; echo '.exe';)
+RELEASE_SUFFIX ?= $(GIT_REF)-$(GOOS)-$(GOARCH).tar.gz
 PACKED_BINS ?= $(addsuffix -$(BIN_ARCH),$(addprefix $(PACKED_DIR)/,$(CMDS)))
 RELEASE_ARTIFACTS ?= $(addsuffix -$(RELEASE_SUFFIX),$(addprefix $(RELEASE_DIR)/,$(CMDS)))
 SRC ?= $(shell find . -iname '*.go')
@@ -85,7 +85,11 @@ release-artifacts: $(RELEASE_ARTIFACTS)
 
 $(RELEASE_DIR)/%-$(RELEASE_SUFFIX): $(PACKED_DIR)/%-$(BIN_ARCH)
 	mkdir -p $(RELEASE_DIR)
-	$(TAR) -cvz --transform 's,$(PACKED_DIR)/$(*)-$(BIN_ARCH),$(*),gi' -f "$@" "$<"
+		@if [ $(GOOS) = "windows" ]; then
+			$(TAR) -cvz --transform 's,$(PACKED_DIR)/$(*)-$(BIN_ARCH),$(*).exe,gi' -f "$@" "$<"
+		else
+			$(TAR) -cvz --transform 's,$(PACKED_DIR)/$(*)-$(BIN_ARCH),$(*),gi' -f "$@" "$<"
+		fi
 
 ## Run Go tests
 test: test-fmt test-git
