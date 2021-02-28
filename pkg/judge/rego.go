@@ -1,9 +1,14 @@
 package judge
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io/ioutil"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"os"
+	"strings"
+	"text/template"
 
 	"github.com/open-policy-agent/opa/rego"
 	"github.com/rakyll/statik/fs"
@@ -19,8 +24,14 @@ type RegoJudge struct {
 type RegoOpts struct {
 }
 
-func NewRegoJudge(opts *RegoOpts) (*RegoJudge, error) {
+func NewRegoJudge(opts *RegoOpts, additionalResourcesStr []string) (*RegoJudge, error) {
 	ctx := context.Background()
+
+	var additionalKinds []schema.GroupVersionKind
+	for _, ar := range additionalResourcesStr {
+		gvr, _ := schema.ParseKindArg(ar)
+		additionalKinds = append(additionalKinds, *gvr)
+	}
 
 	r := rego.New(
 		rego.Query("data[_].main"),
@@ -28,8 +39,9 @@ func NewRegoJudge(opts *RegoOpts) (*RegoJudge, error) {
 
 	statikFS, err := fs.New()
 
-	fs.Walk(statikFS, "/",
+	err = fs.Walk(statikFS, "/",
 		func(path string, info os.FileInfo, err error) error {
+			log.Debug().Msgf("Walking file: %s", info.Name())
 			if !info.IsDir() {
 				if err != nil {
 					return err
@@ -42,11 +54,36 @@ func NewRegoJudge(opts *RegoOpts) (*RegoJudge, error) {
 				if err != nil {
 					return err
 				}
-				rego.Module(info.Name(), string(c))(r)
-				log.Info().Str("name", info.Name()).Msg("Loaded ruleset")
+
+				switch {
+				case strings.HasSuffix(info.Name(), ".rego"):
+					rego.Module(info.Name(), string(c))(r)
+					log.Info().Str("name", info.Name()).Msg("Loaded ruleset")
+
+				// currently this is relevant only to additional resources
+				case strings.HasSuffix(info.Name(), ".tmpl"):
+					t, err := template.New(info.Name()).Parse(string(c))
+					if err != nil {
+						return fmt.Errorf("failed to parse template %s: %w", info.Name(), err)
+					}
+
+					var tpl bytes.Buffer
+					if err := t.Execute(&tpl, additionalKinds); err != nil {
+						return fmt.Errorf("failed to render template %s: %w", info.Name(), err)
+					}
+
+					rego.Module(info.Name(), tpl.String())(r)
+					log.Info().Str("name", info.Name()).Msg("Rendered and loaded ruleset")
+
+				default:
+					return fmt.Errorf("unrecognized filetype: %s", info.Name())
+				}
 			}
 			return nil
 		})
+	if err != nil {
+		return nil, err
+	}
 
 	pq, err := r.PrepareForEval(ctx)
 	if err != nil {

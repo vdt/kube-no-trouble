@@ -54,7 +54,7 @@ func storeCollector(collector collector.Collector, err error, collectors []colle
 func initCollectors(config *config.Config) []collector.Collector {
 	collectors := []collector.Collector{}
 	if config.Cluster {
-		collector, err := collector.NewClusterCollector(&collector.ClusterOpts{Kubeconfig: config.Kubeconfig})
+		collector, err := collector.NewClusterCollector(&collector.ClusterOpts{Kubeconfig: config.Kubeconfig}, config.AdditionalKinds)
 		collectors = storeCollector(collector, err, collectors)
 	}
 
@@ -78,13 +78,14 @@ func initCollectors(config *config.Config) []collector.Collector {
 func main() {
 	exitCode := EXIT_CODE_FAIL_GENERIC
 
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+
 	config, err := config.NewFromFlags()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to parse config flags")
 	}
 
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if config.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
@@ -96,7 +97,7 @@ func main() {
 	initCollectors := initCollectors(config)
 	collectors := getCollectors(initCollectors)
 
-	judge, err := judge.NewRegoJudge(&judge.RegoOpts{})
+	judge, err := judge.NewRegoJudge(&judge.RegoOpts{}, config.AdditionalKinds)
 	if err != nil {
 		log.Fatal().Err(err).Str("name", "Rego").Msg("Failed to initialize decision engine")
 	}
